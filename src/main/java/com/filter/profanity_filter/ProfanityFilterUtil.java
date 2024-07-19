@@ -1,58 +1,71 @@
 package com.filter.profanity_filter;
 
+import com.filter.profanity_filter.utility.StringUtil;
+import org.apache.commons.io.FilenameUtils;
+
 import java.io.*;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 public class ProfanityFilterUtil {
-    private final Set<String> profanitySetVi = new HashSet<>();
-    private final Set<String> profanitySetEn = new HashSet<>();
-    private static volatile ProfanityFilterUtil instance = null;
-    private ProfanityFilterUtil() {
-        getProfanityListFromFile("vi");
-        getProfanityListFromFile("en");
-    }
-    public static ProfanityFilterUtil getInstance() {
-        if(instance == null) {
-            synchronized (ProfanityFilterUtil.class) {
-                if(instance == null) {
-                    instance = new ProfanityFilterUtil();
-                }
-            }
-        }
-        return instance;
+    private final Map<String, Set<String>> dictonariesMap = new HashMap<>();
+
+    private final String folderPath;
+
+    ProfanityFilterUtil(String folderPath) {
+        this.folderPath = folderPath;
+        reloadAllDictionaries();
     }
 
-    private void getProfanityListFromFile(String language) {
-        if(!language.equals("vi") && !language.equals("en")) {
+
+    public void reloadAllDictionaries() {
+        final File folder = new File(folderPath);
+        if (folder.listFiles() == null) {
             return;
         }
-        try (InputStream in = getClass().getResourceAsStream("/profanity." + language);
-             BufferedReader reader = new BufferedReader(new InputStreamReader(in))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.startsWith("#")) {
-                    if(language.equals("vi")) {
-                        profanitySetVi.add(line);
-                    } else {
-                        profanitySetEn.add(line);
-                    }
+            for (final File fileEntry : Objects.requireNonNull(folder.listFiles())) {
+                if (!fileEntry.isDirectory()) {
+                    getProfanityListFromFile(fileEntry.getPath());
                 }
             }
+
+    }
+
+    private void getProfanityListFromFile(String filePath) {
+        String language = FilenameUtils.getExtension(filePath);
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            Set<String> languageProfanitySet = new HashSet<>();
+            while ((line = br.readLine()) != null) {
+                if (!line.startsWith("#")) {
+                    languageProfanitySet.add(line);
+                }
+            }
+            dictonariesMap.put(language, languageProfanitySet);
         } catch (IOException ignored) {
         }
     }
     public String searchAndFilter(String text, String language) {
-        if(!language.equals("vi") && !language.equals("en")) {
+        if(!dictonariesMap.containsKey(language)) {
             return text;
         }
-        String filterText = text.toLowerCase();
-        Set<String> profanitySet = language.equals("vi") ? profanitySetVi : profanitySetEn;
-        for(String word : profanitySet) {
-            String filteredString = StringUtil.buildFilterString(word);
-            filterText = filterText.replaceAll(word, filteredString);
+        StringBuilder filterText = new StringBuilder(text.toLowerCase());
+        Set<String> profanitySet = dictonariesMap.get(language);
+        for(int i = 0; i < filterText.length(); i++) {
+            for(int j = filterText.length(); j > i; j--) {
+                String profanitySubstring = filterText.substring(i, j);
+                if(profanitySet.contains(profanitySubstring)) {
+                    for(int k = i; k < j; k++) {
+                        if(filterText.charAt(k) == ' ') {
+                            filterText.setCharAt(k, ' ');
+                        } else {
+                            filterText.setCharAt(k,'*');
+                        }
+                    }
+                    break;
+                }
+            }
         }
-        text = StringUtil.normalizeText(text, filterText);
+        text = StringUtil.normalizeText(text, filterText.toString());
         return text;
     }
 }
